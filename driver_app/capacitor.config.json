@@ -1,0 +1,17 @@
+{
+  "appId": "com.rayglides.ems.driver",
+  "appName": "RayGlides Driver",
+  "webDir": ".",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "localhost",
+      "127.0.0.1"
+    ]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true
+  }
+}

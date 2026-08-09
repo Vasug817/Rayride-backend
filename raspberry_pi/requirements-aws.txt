@@ -1,0 +1,5 @@
+# Only needed to run aws_gateway.py against real AWS IoT Core / S3.
+# rayglides_protocol.py / aws_packets.py / their tests need none of this -
+# pyserial (from the base README) is the only hard dependency there.
+paho-mqtt>=1.6,<2.0
+boto3>=1.28

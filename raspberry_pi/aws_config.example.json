@@ -1,0 +1,14 @@
+{
+  "device_id": "rayglides-ems-0F3A9C",
+  "endpoint": "your-ats-iot-endpoint.iot.us-east-1.amazonaws.com",
+  "cert_path": "/home/pi/certs/device-cert.pem.crt",
+  "key_path": "/home/pi/certs/private.pem.key",
+  "ca_path": "/home/pi/certs/AmazonRootCA1.pem",
+  "serial_port": "/dev/ttyACM0",
+  "serial_baud": 115200,
+  "telemetry_publish_interval_s": 2.0,
+  "heartbeat_interval_s": 10.0,
+  "firmware_version": "1.4.1",
+
+  "_comment": "Copy this file to aws_config.json and fill in real values. device_id must match the AWS IoT 'thing' name and the CN on cert_path. Certs come from AWS IoT Core > Manage > Things > Create thing (or 'aws iot create-keys-and-certificate'); AmazonRootCA1.pem is downloaded from AWS's published root CA list, not generated per-device."
+}

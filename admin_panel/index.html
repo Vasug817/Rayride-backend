@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RayGlides Admin Fleet Portal</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Outfit -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- React and ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+          },
+          colors: {
+            cyberGreen: {
+              400: '#34D399',
+              500: '#10B981',
+              600: '#059669',
+            },
+            electricBlue: {
+              400: '#60A5FA',
+              500: '#3B82F6',
+              600: '#2563EB',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #080C14;
+      color: #F3F4F6;
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .neon-border-blue {
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+    .neon-border-green {
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans">
+
+  <div id="root" class="flex-grow flex flex-col"></div>
+
+  <!-- React JSX Code -->
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const API_URL = "http://localhost:5050";
+
+    function App() {
+      const [token, setToken] = useState(null);
+      const [view, setView] = useState("login"); // login, dashboard
+      const [adminName, setAdminName] = useState("");
+      
+      // Admin stats
+      const [email, setEmail] = useState("admin@rayglides.com");
+      const [password, setPassword] = useState("admin123");
+      const [loading, setLoading] = useState(false);
+      const [alertMsg, setAlertMsg] = useState(null);
+
+      // Data Tables
+      const [users, setUsers] = useState([]);
+      const [fleet, setFleet] = useState([]);
+      const [selectedVehicle, setSelectedVehicle] = useState(null);
+
+      const showAlert = (msg) => {
+        setAlertMsg(msg);
+        setTimeout(() => setAlertMsg(null), 4000);
+      };
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        setLoading(true);
+        fetch(`${API_URL}/api/auth/signin-password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        })
+        .then(res => res.json())
+        .then(data => {
+          setLoading(false);
+          if (data.error) {
+            showAlert(data.error);
+          } else if (data.user.role !== 'admin') {
+            showAlert("Access denied: Admin credentials required.");
+          } else {
+            setToken(data.token);
+            setAdminName(data.user.name);
+            setView("dashboard");
+            showAlert("Logged in as Fleet Manager.");
+          }
+        })
+        .catch(err => {
+          setLoading(false);
+          showAlert("Connection to backend server failed.");
+        });
+      };
+
+      // Periodic load of users and fleet list
+      useEffect(() => {
+        if (!token) return;
+
+        const loadData = () => {
+          // Users
+          fetch(`${API_URL}/api/admin/users`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) setUsers(data);
+          });
+
+          // Fleet
+          fetch(`${API_URL}/api/admin/fleet-status`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) {
+              setFleet(data);
+              if (selectedVehicle) {
+                const updated = data.find(v => v.device_id === selectedVehicle.device_id);
+                if (updated) setSelectedVehicle(updated);
+              }
+            }
+          });
+        };
+
+        loadData();
+        const interval = setInterval(loadData, 5000);
+        return () => clearInterval(interval);
+      }, [token, selectedVehicle]);
+
+      useEffect(() => {
+        lucide.createIcons();
+      });
+
+      return (
+        <div className="flex-grow flex flex-col">
+          {/* Notification Alert */}
+          {alertMsg && (
+            <div className="fixed top-4 right-4 z-50 bg-gray-900 border-l-4 border-electricBlue-500 p-4 rounded shadow-2xl glass-card transition-all flex items-center gap-3">
+              <i data-lucide="bell" className="text-electricBlue-500 w-5 h-5"></i>
+              <p className="text-sm font-medium">{alertMsg}</p>
+            </div>
+          )}
+
+          {view === "login" ? (
+            <div className="flex-grow flex items-center justify-center p-6 bg-cover" style={{
+              backgroundImage: "radial-gradient(circle at center, #0F172A 0%, #020617 100%)"
+            }}>
+              <div className="w-full max-w-md glass-card p-8 rounded-3xl border border-gray-800 shadow-2xl relative overflow-hidden">
+                <div className="absolute -top-10 -right-10 w-40 h-40 bg-electricBlue-500/10 rounded-full blur-3xl"></div>
+                <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-cyberGreen-500/10 rounded-full blur-3xl"></div>
+
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl font-bold tracking-tight text-white flex items-center justify-center gap-2">
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyberGreen-400 to-electricBlue-500">RayGlides</span> Admin
+                  </h1>
+                  <p className="text-gray-400 text-sm mt-1">Fleet Management Command Portal</p>
+                </div>
+
+                <form onSubmit={handleLogin} className="space-y-5">
+                  <div>
+                    <label className="text-xs text-gray-400 font-semibold block mb-1.5">Email Address</label>
+                    <input 
+                      type="email" 
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full bg-gray-950/80 border border-gray-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-electricBlue-500 focus:ring-1 focus:ring-electricBlue-500" 
+                      placeholder="admin@rayglides.com"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 font-semibold block mb-1.5">Password</label>
+                    <input 
+                      type="password" 
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full bg-gray-950/80 border border-gray-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-electricBlue-500 focus:ring-1 focus:ring-electricBlue-500" 
+                      placeholder="••••••••"
+                    />
+                  </div>
+                  <button 
+                    type="submit" 
+                    disabled={loading}
+                    className="w-full bg-gradient-to-r from-cyberGreen-500 to-electricBlue-600 hover:opacity-90 font-bold py-3 rounded-xl text-sm transition shadow-lg neon-border-blue text-white"
+                  >
+                    {loading ? "Authenticating Portal..." : "Secure Sign In"}
+                  </button>
+                </form>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-grow flex flex-col lg:flex-row min-h-screen">
+              {/* Sidebar Panel */}
+              <aside className="w-full lg:w-64 bg-gray-950/90 border-r border-gray-800/80 p-5 flex flex-col gap-6">
+                <div>
+                  <h1 className="text-xl font-bold text-white tracking-wider flex items-center gap-2">
+                    <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyberGreen-400 to-electricBlue-500">RayGlides</span> Fleet
+                  </h1>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Control Tower v1.0</p>
+                </div>
+
+                <div className="flex-grow space-y-2">
+                  <div className="bg-gray-900/60 border border-gray-800/60 p-3 rounded-xl flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-electricBlue-500/10 flex items-center justify-center">
+                      <i data-lucide="user" className="text-electricBlue-400 w-4 h-4"></i>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-gray-500 block uppercase font-mono">Manager</span>
+                      <span className="text-xs font-bold text-gray-200">{adminName}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => {
+                    setToken(null);
+                    setView("login");
+                  }} 
+                  className="w-full bg-red-950/20 hover:bg-red-950/40 text-red-400 border border-red-900/30 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition"
+                >
+                  <i data-lucide="log-out" className="w-4 h-4"></i>
+                  Sign Out
+                </button>
+              </aside>
+
+              {/* Main Panel Content */}
+              <main className="flex-grow p-6 space-y-6 overflow-y-auto">
+                {/* Metrics Blocks */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-cyberGreen-500">
+                    <div>
+                      <span className="text-[10px] text-gray-400 block uppercase font-semibold">Active Customers</span>
+                      <span className="text-2xl font-extrabold text-white mt-1 block">{users.length}</span>
+                    </div>
+                    <div className="w-10 h-10 bg-cyberGreen-500/10 rounded-xl flex items-center justify-center">
+                      <i data-lucide="users" className="text-cyberGreen-500 w-5 h-5"></i>
+                    </div>
+                  </div>
+
+                  <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-electricBlue-500">
+                    <div>
+                      <span className="text-[10px] text-gray-400 block uppercase font-semibold">Registered Loaders</span>
+                      <span className="text-2xl font-extrabold text-white mt-1 block">{fleet.length}</span>
+                    </div>
+                    <div className="w-10 h-10 bg-electricBlue-500/10 rounded-xl flex items-center justify-center">
+                      <i data-lucide="truck" className="text-electricBlue-400 w-5 h-5"></i>
+                    </div>
+                  </div>
+
+                  <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-yellow-500">
+                    <div>
+                      <span className="text-[10px] text-gray-400 block uppercase font-semibold">Total Savings</span>
+                      <span className="text-2xl font-extrabold text-white mt-1 block">
+                        ₹{fleet.reduce((acc, row) => acc + parseFloat(row.cost_saved || 0), 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="w-10 h-10 bg-yellow-500/10 rounded-xl flex items-center justify-center">
+                      <i data-lucide="dollar-sign" className="text-yellow-500 w-5 h-5"></i>
+                    </div>
+                  </div>
+
+                  <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-purple-500">
+                    <div>
+                      <span className="text-[10px] text-gray-400 block uppercase font-semibold">Broker Connectivity</span>
+                      <span className="text-xs font-extrabold text-purple-400 mt-2 block flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-ping inline-block"></span>
+                        ONLINE (127.0.0.1)
+                      </span>
+                    </div>
+                    <div className="w-10 h-10 bg-purple-500/10 rounded-xl flex items-center justify-center">
+                      <i data-lucide="activity" className="text-purple-400 w-5 h-5"></i>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Lower grid (Tables + Map Tracking) */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Fleet status table */}
+                  <div className="glass-card p-5 rounded-3xl border border-gray-800/80 lg:col-span-2 space-y-4">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                      <i data-lucide="list" className="w-4 h-4 text-electricBlue-400"></i>
+                      EV Fleet Status Directory
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-gray-800 text-gray-400">
+                            <th className="py-2.5">Driver</th>
+                            <th className="py-2.5">Device MAC</th>
+                            <th className="py-2.5">Model</th>
+                            <th className="py-2.5">Battery</th>
+                            <th className="py-2.5">Solar</th>
+                            <th className="py-2.5">Savings</th>
+                            <th className="py-2.5 text-center">Track</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800/40 text-gray-200">
+                          {fleet.map((f, idx) => (
+                            <tr key={idx} className="hover:bg-gray-900/20">
+                              <td className="py-3 font-semibold">{f.driver_name}</td>
+                              <td className="py-3 font-mono text-[10px] text-gray-400">{f.device_id}</td>
+                              <td className="py-3 uppercase text-[10px]">{f.model_type === "3_wheeler" ? "3W Loader" : "4W Loader"}</td>
+                              <td className="py-3">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  (f.soc || 0) > 40 ? "bg-cyberGreen-500/10 text-cyberGreen-400" : "bg-red-500/10 text-red-400"
+                                }`}>
+                                  {f.soc || 0}% (H:{f.soh || 100}%)
+                                </span>
+                              </td>
+                              <td className="py-3 font-mono font-bold text-electricBlue-400">{(f.solar_power || 0).toFixed(0)}W</td>
+                              <td className="py-3 text-yellow-500 font-bold">₹{parseFloat(f.cost_saved || 0).toFixed(2)}</td>
+                              <td className="py-3 text-center">
+                                <button 
+                                  onClick={() => setSelectedVehicle(f)}
+                                  className="p-1 bg-electricBlue-500/10 text-electricBlue-400 hover:bg-electricBlue-500/20 rounded border border-electricBlue-500/20"
+                                >
+                                  <i data-lucide="map-pin" className="w-4 h-4"></i>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Active Customer List */}
+                  <div className="glass-card p-5 rounded-3xl border border-gray-800/80 space-y-4">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                      <i data-lucide="users" className="w-4 h-4 text-cyberGreen-500"></i>
+                      Registered Drivers
+                    </h3>
+                    <div className="space-y-2.5 overflow-y-auto max-h-[300px]">
+                      {users.map((u, idx) => (
+                        <div key={idx} className="bg-gray-950/30 p-3 rounded-xl border border-gray-800/40 flex justify-between items-center">
+                          <div>
+                            <span className="font-bold text-sm block">{u.name}</span>
+                            <span className="text-[10px] text-gray-500 block">{u.email}</span>
+                          </div>
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-gray-900 border border-gray-800 text-gray-400 capitalize">
+                            {u.role}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Map Visualizer (if vehicle selected) */}
+                {selectedVehicle && (
+                  <div className="glass-card p-5 rounded-3xl border border-gray-800/80 space-y-4 animate-fadeIn">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <i data-lucide="navigation" className="w-4 h-4 text-cyberGreen-500"></i>
+                        Active GPS Map Tracking — {selectedVehicle.driver_name} ({selectedVehicle.license_plate})
+                      </h3>
+                      <button onClick={() => setSelectedVehicle(null)} className="text-xs text-gray-500 hover:text-white">Close Tracker</button>
+                    </div>
+
+                    <div className="w-full h-80 rounded-2xl bg-gray-950 relative overflow-hidden border border-gray-800/50 flex items-center justify-center">
+                      {/* Grid background for layout */}
+                      <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#3B82F6_1px,transparent_1px),linear-gradient(to_bottom,#3B82F6_1px,transparent_1px)] bg-[size:30px_30px]"></div>
+
+                      {/* Map markings */}
+                      <div className="absolute top-1/3 left-1/3 w-64 h-12 bg-gray-800/40 rounded-full blur-md transform -rotate-12"></div>
+                      <div className="absolute bottom-1/4 right-1/3 w-48 h-10 bg-gray-800/30 rounded-full blur-md transform rotate-45"></div>
+
+                      {/* GPS Marker */}
+                      <div className="absolute text-center transform -translate-x-1/2 -translate-y-1/2 transition-all duration-1000" style={{
+                        top: '50%',
+                        left: '50%'
+                      }}>
+                        <div className="w-14 h-14 rounded-full bg-cyberGreen-500/10 absolute -left-4 -top-4 animate-ping"></div>
+                        <div className="w-6 h-6 rounded-full bg-cyberGreen-500 border-2 border-white flex items-center justify-center shadow-lg relative z-10">
+                          <i data-lucide="truck" className="w-3.5 h-3.5 text-white"></i>
+                        </div>
+                      </div>
+
+                      {/* Info Panel inside map */}
+                      <div className="absolute top-4 left-4 bg-gray-900/90 border border-gray-800 p-3 rounded-xl text-xs space-y-1">
+                        <div><span className="text-gray-500">Device MAC:</span> <span className="font-mono">{selectedVehicle.device_id}</span></div>
+                        <div><span className="text-gray-500">Live GPS:</span> <span className="font-mono text-cyberGreen-400">{(selectedVehicle.latitude || 28.6139).toFixed(6)}°N, {(selectedVehicle.longitude || 77.2090).toFixed(6)}°E</span></div>
+                        <div><span className="text-gray-500">SOC / SOH:</span> <span className="font-semibold">{selectedVehicle.soc || 0}% / {selectedVehicle.soh || 100}%</span></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </main>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const container = document.getElementById('root');
+    const root = ReactDOM.createRoot(container);
+    root.render(<App />);
+  </script>
+</body>
+</html>
