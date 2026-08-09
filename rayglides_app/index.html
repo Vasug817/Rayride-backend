@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RayGlides Unified Command Portal</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Outfit -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- React and ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'sans-serif'],
+          },
+          colors: {
+            cyberGreen: {
+              400: '#34D399',
+              500: '#10B981',
+              600: '#059669',
+            },
+            electricBlue: {
+              400: '#60A5FA',
+              500: '#3B82F6',
+              600: '#2563EB',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #080C14;
+      color: #F3F4F6;
+      user-select: none;
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .neon-border-blue {
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.15);
+      border-color: rgba(59, 130, 246, 0.3);
+    }
+    .neon-border-green {
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+    .neon-glow-green {
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans">
+
+  <div id="root" class="flex-grow flex flex-col"></div>
+
+  <!-- React JSX Code -->
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const API_URL = "http://localhost:5050";
+
+    function App() {
+      const [user, setUser] = useState(null);
+      const [token, setToken] = useState(null);
+      const [view, setView] = useState("login"); // login, signup, driver_dashboard, driver_map, driver_savings, admin_dashboard
+      const [showGoogleModal, setShowGoogleModal] = useState(false);
+      const [loading, setLoading] = useState(false);
+      const [alertMsg, setAlertMsg] = useState(null);
+
+      // Telemetry & Table States
+      const [telemetry, setTelemetry] = useState(null);
+      const [savings, setSavings] = useState([]);
+      const [adminUsers, setAdminUsers] = useState([]);
+      const [adminFleet, setAdminFleet] = useState([]);
+      const [selectedFleetVehicle, setSelectedFleetVehicle] = useState(null);
+
+      // Auth credentials fields
+      const [authMode, setAuthMode] = useState("password"); // password or otp
+      const [email, setEmail] = useState("");
+      const [phone, setPhone] = useState("");
+      const [name, setName] = useState("");
+      const [password, setPassword] = useState("");
+      const [otpCode, setOtpCode] = useState("");
+      const [sentOtpContact, setSentOtpContact] = useState("");
+
+      const showAlert = (msg) => {
+        setAlertMsg(msg);
+        setTimeout(() => setAlertMsg(null), 4000);
+      };
+
+      // Periodic load of telemetry if role = driver
+      useEffect(() => {
+        if (!token || !user) return;
+        if (user.role !== 'driver') return;
+
+        const fetchStatus = () => {
+          fetch(`${API_URL}/api/driver/vehicle-status`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) setTelemetry(data);
+          })
+          .catch(err => console.log("Fetch status error:", err));
+        };
+
+        const fetchSavings = () => {
+          fetch(`${API_URL}/api/driver/savings-summary`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) setSavings(data);
+          })
+          .catch(err => console.log("Fetch savings error:", err));
+        };
+
+        fetchStatus();
+        fetchSavings();
+
+        const statusInterval = setInterval(fetchStatus, 3000);
+        return () => clearInterval(statusInterval);
+      }, [token, user]);
+
+      // Periodic load of fleet tables if role = admin
+      useEffect(() => {
+        if (!token || !user) return;
+        if (user.role !== 'admin') return;
+
+        const loadAdminData = () => {
+          fetch(`${API_URL}/api/admin/users`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) setAdminUsers(data);
+          });
+
+          fetch(`${API_URL}/api/admin/fleet-status`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) {
+              setAdminFleet(data);
+              if (selectedFleetVehicle) {
+                const updated = data.find(v => v.device_id === selectedFleetVehicle.device_id);
+                if (updated) setSelectedFleetVehicle(updated);
+              }
+            }
+          });
+        };
+
+        loadAdminData();
+        const adminInterval = setInterval(loadAdminData, 4000);
+        return () => clearInterval(adminInterval);
+      }, [token, user, selectedFleetVehicle]);
+
+      const handleLogin = (e) => {
+        if (e) e.preventDefault();
+        setLoading(true);
+
+        const endpoint = authMode === "password" ? "/api/auth/signin-password" : "/api/auth/signin-otp";
+        const body = authMode === "password" 
+          ? { email, password } 
+          : { contact_info: sentOtpContact, code: otpCode };
+
+        fetch(`${API_URL}${endpoint}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        })
+        .then(res => res.json())
+        .then(data => {
+          setLoading(false);
+          if (data.error) {
+            showAlert(data.error);
+          } else {
+            setToken(data.token);
+            setUser(data.user);
+            if (data.user.role === 'admin') {
+              setView("admin_dashboard");
+            } else {
+              setView("driver_dashboard");
+            }
+            showAlert(`Logged in successfully as ${data.user.name}`);
+          }
+        })
+        .catch(err => {
+          setLoading(false);
+          showAlert("Connection to backend server failed. Make sure your server is running.");
+        });
+      };
+
+      const handleSignup = (e) => {
+        e.preventDefault();
+        setLoading(true);
+        fetch(`${API_URL}/api/auth/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, phone, password })
+        })
+        .then(res => res.json())
+        .then(data => {
+          setLoading(false);
+          if (data.error) {
+            showAlert(data.error);
+          } else {
+            showAlert("Signup successful! Please sign in with your new credentials.");
+            setView("login");
+          }
+        })
+        .catch(err => {
+          setLoading(false);
+          showAlert("Signup failed. Check backend connectivity.");
+        });
+      };
+
+      const sendOtp = () => {
+        const contact = email || phone;
+        if (!contact) return showAlert("Please enter your email or phone number first");
+        
+        setLoading(true);
+        fetch(`${API_URL}/api/auth/send-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contact_info: contact })
+        })
+        .then(res => res.json())
+        .then(data => {
+          setLoading(false);
+          if (data.error) {
+            showAlert(data.error);
+          } else {
+            setSentOtpContact(contact);
+            setAuthMode("otp");
+            showAlert(`OTP sent successfully! Your code is: ${data.code}`);
+          }
+        })
+        .catch(err => {
+          setLoading(false);
+          showAlert("Failed to connect to OTP gateway.");
+        });
+      };
+
+      const executeGoogleSign = (gmail, gname) => {
+        setShowGoogleModal(false);
+        setLoading(true);
+        fetch(`${API_URL}/api/auth/google-login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: gmail, name: gname })
+        })
+        .then(res => res.json())
+        .then(data => {
+          setLoading(false);
+          setToken(data.token);
+          setUser(data.user);
+          setView("driver_dashboard");
+          showAlert(`Welcome, Google User: ${gname}!`);
+        })
+        .catch(err => {
+          setLoading(false);
+          showAlert("Google Sign-In gateway failure.");
+        });
+      };
+
+      useEffect(() => {
+        lucide.createIcons();
+      });
+
+      return (
+        <div className="flex-grow flex flex-col min-h-screen">
+          {/* Notification Alert */}
+          {alertMsg && (
+            <div className="fixed top-4 left-4 right-4 z-50 bg-gray-900 border-l-4 border-cyberGreen-500 p-4 rounded shadow-2xl glass-card transition-all duration-300 flex items-center gap-3">
+              <i data-lucide="bell" className="text-cyberGreen-500 w-5 h-5"></i>
+              <p className="text-sm font-medium">{alertMsg}</p>
+            </div>
+          )}
+
+          {/* Google Sign-in Chooser Modal */}
+          {showGoogleModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="w-full max-w-sm glass-card rounded-3xl p-6 border border-gray-800 shadow-2xl text-center space-y-6">
+                <div>
+                  <h3 className="text-lg font-bold text-white">Google Identity Services</h3>
+                  <p className="text-xs text-gray-400 mt-1">Choose an account to sign in to RayGlides</p>
+                </div>
+                <div className="space-y-3">
+                  <button 
+                    onClick={() => executeGoogleSign("vasu@rayglides.com", "Vasu Gupta")}
+                    className="w-full bg-gray-950 hover:bg-gray-900 border border-gray-800 p-3 rounded-2xl flex items-center gap-3 transition"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-cyberGreen-500/20 text-cyberGreen-400 font-bold flex items-center justify-center text-sm">VG</div>
+                    <div className="text-left">
+                      <span className="text-xs font-bold text-white block">Vasu Gupta</span>
+                      <span className="text-[10px] text-gray-500 block">vasug817@gmail.com</span>
+                    </div>
+                  </button>
+
+                  <button 
+                    onClick={() => executeGoogleSign("guest_driver@gmail.com", "Guest Driver")}
+                    className="w-full bg-gray-950 hover:bg-gray-900 border border-gray-800 p-3 rounded-2xl flex items-center gap-3 transition"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-electricBlue-500/20 text-electricBlue-400 font-bold flex items-center justify-center text-sm">GD</div>
+                    <div className="text-left">
+                      <span className="text-xs font-bold text-white block">Guest Driver</span>
+                      <span className="text-[10px] text-gray-500 block">guest_driver@gmail.com</span>
+                    </div>
+                  </button>
+                </div>
+                <button onClick={() => setShowGoogleModal(false)} className="text-xs text-gray-500 hover:text-white">Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {/* Views Layout */}
+          <div className="flex-grow flex flex-col">
+            
+            {/* LOGIN VIEW */}
+            {view === "login" && (
+              <div className="flex-grow flex items-center justify-center p-6 bg-radial bg-gradient-to-tr from-[#020617] to-[#0F172A]">
+                <div className="w-full max-w-sm glass-card p-6 rounded-3xl border border-gray-800 shadow-2xl relative overflow-hidden">
+                  <div className="absolute -top-10 -right-10 w-32 h-32 bg-cyberGreen-500/10 rounded-full blur-3xl"></div>
+                  <div className="absolute -bottom-10 -left-10 w-32 h-32 bg-electricBlue-500/10 rounded-full blur-3xl"></div>
+                  
+                  <div className="text-center mb-8">
+                    <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyberGreen-400 to-electricBlue-500">RayGlides</h1>
+                    <p className="text-gray-400 text-xs mt-1">Smart Solar EMS Portal</p>
+                  </div>
+
+                  {authMode === "password" ? (
+                    <form onSubmit={handleLogin} className="space-y-4">
+                      <div>
+                        <label className="text-[10px] text-gray-400 font-semibold block mb-1">Email ID</label>
+                        <input 
+                          type="email" 
+                          required
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                          placeholder="driver@rayglides.com (or admin@rayglides.com)"
+                        />
+                      </div>
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <label className="text-[10px] text-gray-400 font-semibold">Password</label>
+                          <button type="button" onClick={() => setAuthMode("otp")} className="text-[10px] text-electricBlue-400">Sign in with OTP</button>
+                        </div>
+                        <input 
+                          type="password" 
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                          placeholder="••••••••"
+                        />
+                      </div>
+                      <button 
+                        type="submit" 
+                        disabled={loading}
+                        className="w-full bg-gradient-to-r from-cyberGreen-500 to-electricBlue-600 font-bold py-2.5 rounded-xl text-sm hover:opacity-90 neon-border-blue text-white"
+                      >
+                        {loading ? "Connecting to EMS..." : "Sign In"}
+                      </button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleLogin} className="space-y-4">
+                      <div>
+                        <label className="text-[10px] text-gray-400 font-semibold block mb-1">Email or Phone Number</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="text" 
+                            value={email || phone}
+                            onChange={(e) => {
+                              setEmail(e.target.value);
+                              setPhone(e.target.value);
+                            }}
+                            className="flex-grow bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                            placeholder="Email or +91..."
+                          />
+                          <button 
+                            type="button" 
+                            onClick={sendOtp}
+                            className="bg-gray-850 hover:bg-gray-800 border border-gray-700 text-xs px-3 rounded-xl font-semibold"
+                          >
+                            Send OTP
+                          </button>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <label className="text-[10px] text-gray-400 font-semibold">Verification OTP Code</label>
+                          <button type="button" onClick={() => setAuthMode("password")} className="text-[10px] text-electricBlue-400">Use Password</button>
+                        </div>
+                        <input 
+                          type="text" 
+                          required
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-center tracking-widest font-mono text-lg text-white" 
+                          placeholder="000000"
+                          maxLength={6}
+                        />
+                      </div>
+                      <button 
+                        type="submit"
+                        disabled={loading}
+                        className="w-full bg-gradient-to-r from-cyberGreen-500 to-electricBlue-600 font-bold py-2.5 rounded-xl text-sm hover:opacity-90 neon-border-green text-white"
+                      >
+                        {loading ? "Verifying..." : "Verify OTP & Sign In"}
+                      </button>
+                    </form>
+                  )}
+
+                  <div className="relative my-5 text-center">
+                    <hr className="border-gray-800" />
+                    <span className="bg-[#080C14] text-[10px] text-gray-500 px-3 absolute -top-2.5 left-1/2 -translate-x-1/2">Or connect with</span>
+                  </div>
+
+                  <button 
+                    onClick={() => setShowGoogleModal(true)}
+                    className="w-full bg-gray-950 hover:bg-gray-900 border border-gray-800 flex items-center justify-center gap-3 py-2 rounded-xl text-sm font-semibold transition"
+                  >
+                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" />
+                    Sign In with Google ID
+                  </button>
+
+                  <div className="text-center mt-5">
+                    <button onClick={() => setView("signup")} className="text-xs text-gray-400 hover:text-white">New User? <span className="text-cyberGreen-400 font-semibold">Create account</span></button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SIGNUP VIEW */}
+            {view === "signup" && (
+              <div className="flex-grow flex items-center justify-center p-6 bg-radial bg-gradient-to-tr from-[#020617] to-[#0F172A]">
+                <div className="w-full max-w-sm glass-card p-6 rounded-3xl border border-gray-800 shadow-2xl relative overflow-hidden">
+                  <h2 className="text-xl font-bold mb-4 text-white">Create Account</h2>
+                  <form onSubmit={handleSignup} className="space-y-4">
+                    <div>
+                      <label className="text-[10px] text-gray-400 font-semibold block mb-1">Full Name</label>
+                      <input 
+                        type="text" 
+                        required
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                        placeholder="Vasu Gupta"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400 font-semibold block mb-1">Email Address</label>
+                      <input 
+                        type="email" 
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                        placeholder="driver@rayglides.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400 font-semibold block mb-1">Phone Number</label>
+                      <input 
+                        type="tel" 
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                        placeholder="+919876543210"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-400 font-semibold block mb-1">Password</label>
+                      <input 
+                        type="password" 
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <button 
+                      type="submit" 
+                      className="w-full bg-gradient-to-r from-cyberGreen-500 to-electricBlue-600 font-bold py-2.5 rounded-xl text-sm hover:opacity-90 neon-border-blue text-white"
+                    >
+                      Complete Signup
+                    </button>
+                  </form>
+                  <div className="text-center mt-5">
+                    <button onClick={() => setView("login")} className="text-xs text-gray-400 hover:text-white">Already registered? <span className="text-electricBlue-400 font-semibold">Sign in</span></button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DRIVER DASHBOARD VIEW */}
+            {view === "driver_dashboard" && telemetry && (
+              <div className="max-w-md mx-auto w-full p-4 space-y-4 pb-20">
+                {/* Header */}
+                <div className="flex justify-between items-center bg-gray-950/40 p-3 rounded-xl border border-gray-800/40">
+                  <div>
+                    <h3 className="text-xs text-gray-400">RayGlides Driver</h3>
+                    <h2 className="font-bold text-white text-base">{user.name}</h2>
+                  </div>
+                  <div className="text-right">
+                    <span className="px-3 py-1 bg-cyberGreen-500/10 text-cyberGreen-400 text-xs rounded-full border border-cyberGreen-500/20 font-semibold uppercase tracking-wider">
+                      {telemetry.license_plate}
+                    </span>
+                  </div>
+                </div>
+
+                {/* State Card */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="glass-card p-4 rounded-2xl flex flex-col items-center justify-center relative overflow-hidden">
+                    <div className="absolute top-0 right-0 bg-cyberGreen-500/10 text-cyberGreen-400 text-[9px] px-2 py-0.5 rounded-bl font-mono">BATTERY</div>
+                    <div className="relative w-28 h-28 flex items-center justify-center mt-2">
+                      <svg className="w-full h-full transform -rotate-90">
+                        <circle cx="56" cy="56" r="44" stroke="#1F2937" strokeWidth="8" fill="transparent" />
+                        <circle 
+                          cx="56" cy="56" r="44" 
+                          stroke="#10B981" strokeWidth="8" fill="transparent" 
+                          strokeDasharray={276}
+                          strokeDashoffset={276 - (276 * telemetry.soc) / 100}
+                          className="transition-all duration-500 stroke-cyberGreen-500"
+                        />
+                      </svg>
+                      <div className="absolute text-center">
+                        <span className="text-3xl font-extrabold text-white">{telemetry.soc}%</span>
+                        <p className="text-[9px] text-gray-500 uppercase tracking-widest mt-0.5">SOH: {telemetry.soh}%</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="glass-card p-3 rounded-2xl flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-cyberGreen-500/10 flex items-center justify-center">
+                        <i data-lucide="zap" className="text-cyberGreen-500 w-5 h-5"></i>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase">EMS State</span>
+                        <span className="font-extrabold text-sm text-white">{telemetry.state}</span>
+                      </div>
+                    </div>
+
+                    <div className="glass-card p-3 rounded-2xl flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-electricBlue-500/10 flex items-center justify-center animate-pulse">
+                        <i data-lucide="sun" className="text-electricBlue-400 w-5 h-5"></i>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase">Solar Power</span>
+                        <span className="font-extrabold text-sm text-electricBlue-400">{telemetry.solar_power.toFixed(0)}W</span>
+                      </div>
+                    </div>
+
+                    <div className="glass-card p-3 rounded-2xl flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-yellow-500/10 flex items-center justify-center">
+                        <i data-lucide="dollar-sign" className="text-yellow-500 w-5 h-5"></i>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase">Daily Cost Saved</span>
+                        <span className="font-extrabold text-sm text-yellow-500">₹{telemetry.cost_saved.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Core Diagnostic */}
+                <div className="glass-card p-4 rounded-2xl space-y-3">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-800/80 pb-2">Core Telemetry</h3>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-gray-950/30 p-2 rounded-xl border border-gray-800/30">
+                      <span className="text-[9px] text-gray-400 block uppercase">Volt</span>
+                      <span className="font-bold text-sm text-white">{telemetry.battery_voltage.toFixed(1)}V</span>
+                    </div>
+                    <div className="bg-gray-950/30 p-2 rounded-xl border border-gray-800/30">
+                      <span className="text-[9px] text-gray-400 block uppercase">Current</span>
+                      <span className="font-bold text-sm text-white">{telemetry.battery_current.toFixed(1)}A</span>
+                    </div>
+                    <div className="bg-gray-950/30 p-2 rounded-xl border border-gray-800/30">
+                      <span className="text-[9px] text-gray-400 block uppercase">Temp</span>
+                      <span className="font-bold text-sm text-red-400">{telemetry.battery_temp.toFixed(1)}°C</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Graphics Cargo EV Image Loader */}
+                <div className="glass-card p-4 rounded-2xl relative overflow-hidden flex flex-col border-l-4 border-electricBlue-500">
+                  <h3 className="text-sm font-bold text-white mb-2 self-start flex items-center gap-2">
+                    <i data-lucide="truck" className="w-4 h-4 text-electricBlue-400"></i>
+                    Indian Market Solar Loader EV
+                  </h3>
+                  <div className="w-full h-48 rounded-xl overflow-hidden bg-gray-950 relative border border-gray-800/50">
+                    <img 
+                      src={telemetry.model_type === "3_wheeler" ? "mahindra_treo_zor.jpg" : "tata_ace_ev.jpg"} 
+                      alt="RayGlides Indian EV Loader" 
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.onerror = null; 
+                        e.target.src = "https://images.unsplash.com/photo-1558441719-ff34b0524a24?w=500&auto=format&fit=crop&q=60";
+                      }}
+                    />
+                    <div className="absolute bottom-2 right-2 bg-gray-900/90 text-[10px] px-2 py-0.5 rounded font-mono border border-gray-800 text-electricBlue-400 font-bold">
+                      {telemetry.model_type === "3_wheeler" ? "MAHINDRA TREO ZOR SOLAR" : "TATA ACE EV SOLAR"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DRIVER MAP VIEW */}
+            {view === "driver_map" && telemetry && (
+              <div className="max-w-md mx-auto w-full flex-grow flex flex-col relative min-h-[450px] pb-20">
+                <div className="absolute inset-0 bg-gray-900 overflow-hidden flex items-center justify-center">
+                  {/* Map streets grid */}
+                  <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#3B82F6_1px,transparent_1px),linear-gradient(to_bottom,#3B82F6_1px,transparent_1px)] bg-[size:45px_45px]"></div>
+                  
+                  {/* Map marker */}
+                  <div className="absolute text-center transform -translate-x-1/2 -translate-y-1/2">
+                    <div className="w-16 h-16 rounded-full bg-cyberGreen-500/10 absolute -left-5 -top-5 animate-ping"></div>
+                    <div className="w-6 h-6 rounded-full bg-cyberGreen-500 border-2 border-white flex items-center justify-center shadow-lg relative z-10">
+                      <i data-lucide="truck" className="w-3.5 h-3.5 text-white"></i>
+                    </div>
+                    <div className="mt-2 bg-gray-950/95 text-[10px] px-2.5 py-0.5 rounded border border-cyberGreen-500/40 text-cyberGreen-400 font-mono shadow-2xl font-bold">
+                      {telemetry.license_plate}
+                    </div>
+                  </div>
+
+                  <div className="absolute bottom-4 left-4 right-4 glass-card p-4 rounded-xl space-y-2 z-20">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">VEHICLE LOCATION TRACKER</h3>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-gray-400">Position Coordinates:</span>
+                      <span className="font-mono text-cyberGreen-400">{telemetry.latitude.toFixed(6)}°N, {telemetry.longitude.toFixed(6)}°E</span>
+                    </div>
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="text-gray-400">Battery Status:</span>
+                      <span className="font-semibold text-white">{telemetry.soc}% SOC (Health: {telemetry.soh}%)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* DRIVER SAVINGS VIEW */}
+            {view === "driver_savings" && (
+              <div className="max-w-md mx-auto w-full p-4 space-y-4 pb-20">
+                <div className="glass-card p-5 rounded-2xl relative overflow-hidden border-l-4 border-yellow-500">
+                  <div className="absolute top-0 right-0 bg-yellow-500/10 text-yellow-500 text-[10px] px-2.5 py-0.5 rounded-bl font-mono">FINANCIAL</div>
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Lifetime Solar Savings</h3>
+                  <div className="flex items-baseline gap-2 mt-2">
+                    <span className="text-4xl font-extrabold text-white">₹{savings.reduce((acc, s) => acc + parseFloat(s.daily_savings || 0), 0).toFixed(2)}</span>
+                    <span className="text-xs text-cyberGreen-400 font-semibold flex items-center">
+                      <i data-lucide="trending-up" className="w-3.5 h-3.5 inline mr-1"></i>
+                      Eco-charging active
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">Calculated daily using clean solar energy generated vs commercial grid tariffs.</p>
+                </div>
+
+                <div className="glass-card p-4 rounded-2xl space-y-3">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-800 pb-2">Weekly Savings Log</h3>
+                  <div className="space-y-2.5">
+                    {savings.map((s, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-gray-950/20 p-2.5 rounded-xl border border-gray-800/30">
+                        <div>
+                          <span className="text-xs text-gray-400 block">{s.date}</span>
+                          <span className="text-[10px] font-bold text-gray-300">{(s.daily_solar_wh / 1000.0).toFixed(2)} kWh solar generated</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-extrabold text-sm text-yellow-500">₹{parseFloat(s.daily_savings).toFixed(2)}</span>
+                          <p className="text-[9px] text-cyberGreen-400 uppercase">saved</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ADMIN DASHBOARD VIEW */}
+            {view === "admin_dashboard" && (
+              <div className="flex-grow flex flex-col lg:flex-row min-h-screen">
+                {/* Admin Sidebar */}
+                <aside className="w-full lg:w-64 bg-gray-950/80 border-r border-gray-800/60 p-5 flex flex-col gap-6">
+                  <div>
+                    <h1 className="text-xl font-bold tracking-wider text-white">RayGlides Admin</h1>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest mt-1">Fleet Command Center</p>
+                  </div>
+                  <div className="flex-grow space-y-2">
+                    <div className="bg-gray-900/60 border border-gray-850 p-3 rounded-xl flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-electricBlue-500/10 flex items-center justify-center">
+                        <i data-lucide="user" className="text-electricBlue-400 w-4 h-4"></i>
+                      </div>
+                      <div>
+                        <span className="text-[9px] text-gray-500 block uppercase font-mono">Role: Manager</span>
+                        <span className="text-xs font-bold text-white">{user.name}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      setToken(null);
+                      setUser(null);
+                      setView("login");
+                    }} 
+                    className="w-full bg-red-950/20 hover:bg-red-950/40 text-red-400 border border-red-900/30 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition"
+                  >
+                    <i data-lucide="log-out" className="w-4 h-4"></i>
+                    Sign Out
+                  </button>
+                </aside>
+
+                {/* Admin Main Workstation */}
+                <main className="flex-grow p-6 space-y-6 overflow-y-auto">
+                  {/* Grid Counters */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-cyberGreen-500">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase font-semibold">Active Customers</span>
+                        <span className="text-2xl font-extrabold text-white mt-1 block">{adminUsers.length}</span>
+                      </div>
+                      <div className="w-10 h-10 bg-cyberGreen-500/10 rounded-xl flex items-center justify-center">
+                        <i data-lucide="users" className="text-cyberGreen-500 w-5 h-5"></i>
+                      </div>
+                    </div>
+
+                    <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-electricBlue-500">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase font-semibold">Registered Loaders</span>
+                        <span className="text-2xl font-extrabold text-white mt-1 block">{adminFleet.length}</span>
+                      </div>
+                      <div className="w-10 h-10 bg-electricBlue-500/10 rounded-xl flex items-center justify-center">
+                        <i data-lucide="truck" className="text-electricBlue-400 w-5 h-5"></i>
+                      </div>
+                    </div>
+
+                    <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-yellow-500">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase font-semibold">Total Savings</span>
+                        <span className="text-2xl font-extrabold text-white mt-1 block">
+                          ₹{adminFleet.reduce((acc, row) => acc + parseFloat(row.cost_saved || 0), 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="w-10 h-10 bg-yellow-500/10 rounded-xl flex items-center justify-center">
+                        <i data-lucide="dollar-sign" className="text-yellow-500 w-5 h-5"></i>
+                      </div>
+                    </div>
+
+                    <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-purple-500">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block uppercase font-semibold">Broker Network</span>
+                        <span className="text-xs font-extrabold text-purple-400 mt-2 block flex items-center gap-1.5 font-mono">
+                          <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-ping inline-block"></span>
+                          ONLINE (127.0.0.1)
+                        </span>
+                      </div>
+                      <div className="w-10 h-10 bg-purple-500/10 rounded-xl flex items-center justify-center">
+                        <i data-lucide="activity" className="text-purple-400 w-5 h-5"></i>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Directory and Fleet */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div className="glass-card p-5 rounded-3xl border border-gray-800/80 lg:col-span-2 space-y-4">
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="list" className="w-4 h-4 text-electricBlue-400"></i>
+                        Active Solar Fleet Status Table
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-gray-800 text-gray-400">
+                              <th className="py-2.5">Driver</th>
+                              <th className="py-2.5">Device MAC</th>
+                              <th className="py-2.5">Model</th>
+                              <th className="py-2.5">Battery Status</th>
+                              <th className="py-2.5">Solar input</th>
+                              <th className="py-2.5">Daily savings</th>
+                              <th className="py-2.5 text-center">Track</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-800/40 text-gray-200">
+                            {adminFleet.map((f, idx) => (
+                              <tr key={idx} className="hover:bg-gray-900/20">
+                                <td className="py-3 font-semibold">{f.driver_name}</td>
+                                <td className="py-3 font-mono text-[10px] text-gray-400">{f.device_id}</td>
+                                <td className="py-3 uppercase text-[10px] font-bold">{f.model_type === "3_wheeler" ? "Mahindra 3W" : "Tata Ace 4W"}</td>
+                                <td className="py-3">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    (f.soc || 0) > 40 ? "bg-cyberGreen-500/10 text-cyberGreen-400" : "bg-red-500/10 text-red-400"
+                                  }`}>
+                                    {f.soc || 0}% (Health: {f.soh || 100}%)
+                                  </span>
+                                </td>
+                                <td className="py-3 font-mono font-bold text-electricBlue-400">{(f.solar_power || 0).toFixed(0)}W</td>
+                                <td className="py-3 text-yellow-500 font-bold">₹{parseFloat(f.cost_saved || 0).toFixed(2)}</td>
+                                <td className="py-3 text-center">
+                                  <button 
+                                    onClick={() => setSelectedFleetVehicle(f)}
+                                    className="p-1 bg-electricBlue-500/10 text-electricBlue-400 hover:bg-electricBlue-500/20 rounded border border-electricBlue-500/20"
+                                  >
+                                    <i data-lucide="map-pin" className="w-4 h-4"></i>
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Active Customer List */}
+                    <div className="glass-card p-5 rounded-3xl border border-gray-800/80 space-y-4">
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                        <i data-lucide="users" className="w-4 h-4 text-cyberGreen-500"></i>
+                        Registered Fleet Customers
+                      </h3>
+                      <div className="space-y-2.5 overflow-y-auto max-h-[300px]">
+                        {adminUsers.map((u, idx) => (
+                          <div key={idx} className="bg-gray-950/30 p-3 rounded-xl border border-gray-800/40 flex justify-between items-center">
+                            <div>
+                              <span className="font-bold text-sm block text-white">{u.name}</span>
+                              <span className="text-[10px] text-gray-500 block">{u.email}</span>
+                            </div>
+                            <span className="text-[9px] px-2.5 py-0.5 rounded-full bg-gray-900 border border-gray-800 text-gray-400 capitalize">
+                              {u.role}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active GPS map visualizer */}
+                  {selectedFleetVehicle && (
+                    <div className="glass-card p-5 rounded-3xl border border-gray-800/80 space-y-4 animate-fadeIn">
+                      <div className="flex justify-between items-center">
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                          <i data-lucide="navigation" className="w-4 h-4 text-cyberGreen-500"></i>
+                          Live Fleet Tracking — {selectedFleetVehicle.driver_name} ({selectedFleetVehicle.license_plate})
+                        </h3>
+                        <button onClick={() => setSelectedFleetVehicle(null)} className="text-xs text-gray-500 hover:text-white">Close Live Tracking</button>
+                      </div>
+
+                      <div className="w-full h-80 rounded-2xl bg-gray-950 relative overflow-hidden border border-gray-800/50 flex items-center justify-center">
+                        <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#3B82F6_1px,transparent_1px),linear-gradient(to_bottom,#3B82F6_1px,transparent_1px)] bg-[size:30px_30px]"></div>
+
+                        {/* GPS pin */}
+                        <div className="absolute text-center transform -translate-x-1/2 -translate-y-1/2" style={{
+                          top: '50%',
+                          left: '50%'
+                        }}>
+                          <div className="w-14 h-14 rounded-full bg-cyberGreen-500/10 absolute -left-4 -top-4 animate-ping"></div>
+                          <div className="w-6 h-6 rounded-full bg-cyberGreen-500 border-2 border-white flex items-center justify-center shadow-lg relative z-10">
+                            <i data-lucide="truck" className="w-3.5 h-3.5 text-white"></i>
+                          </div>
+                        </div>
+
+                        <div className="absolute top-4 left-4 bg-gray-900/90 border border-gray-800 p-3 rounded-xl text-xs space-y-1 z-10">
+                          <div><span className="text-gray-500">Device MAC:</span> <span className="font-mono text-white">{selectedFleetVehicle.device_id}</span></div>
+                          <div><span className="text-gray-500">Coordinates:</span> <span className="font-mono text-cyberGreen-400">{(selectedFleetVehicle.latitude || 28.6139).toFixed(6)}°N, {(selectedFleetVehicle.longitude || 77.2090).toFixed(6)}°E</span></div>
+                          <div><span className="text-gray-500">SOC / SOH:</span> <span className="font-semibold text-white">{selectedFleetVehicle.soc || 0}% / {selectedFleetVehicle.soh || 100}%</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </main>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom navigation menu (Driver Layout only) */}
+          {user && user.role === 'driver' && (
+            <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-gray-950/95 backdrop-blur-md border-t border-gray-800/80 px-4 py-2 flex justify-around items-center z-40">
+              <button 
+                onClick={() => setView("driver_dashboard")} 
+                className={`flex flex-col items-center gap-1 text-[10px] ${view === "driver_dashboard" ? "text-cyberGreen-400 font-bold" : "text-gray-400"}`}
+              >
+                <i data-lucide="home" className="w-4 h-4"></i>
+                Home
+              </button>
+              <button 
+                onClick={() => setView("driver_map")} 
+                className={`flex flex-col items-center gap-1 text-[10px] ${view === "driver_map" ? "text-cyberGreen-400 font-bold" : "text-gray-400"}`}
+              >
+                <i data-lucide="map" className="w-4 h-4"></i>
+                Tracker
+              </button>
+              <button 
+                onClick={() => setView("driver_savings")} 
+                className={`flex flex-col items-center gap-1 text-[10px] ${view === "driver_savings" ? "text-cyberGreen-400 font-bold" : "text-gray-400"}`}
+              >
+                <i data-lucide="dollar-sign" className="w-4 h-4"></i>
+                Savings
+              </button>
+              <button 
+                onClick={() => {
+                  setToken(null);
+                  setUser(null);
+                  setView("login");
+                }} 
+                className="flex flex-col items-center gap-1 text-[10px] text-red-400"
+              >
+                <i data-lucide="log-out" className="w-4 h-4"></i>
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const container = document.getElementById('root');
+    const root = ReactDOM.createRoot(container);
+    root.render(<App />);
+  </script>
+</body>
+</html>
