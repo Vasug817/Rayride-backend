@@ -16,7 +16,7 @@ app = Flask(__name__)
 # Enable CORS for all origins, allowing Authorization and content-type headers
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-JWT_SECRET = b'rayglides_super_secret_signing_key_2026'
+JWT_SECRET = os.environ.get('JWT_SECRET', 'rayglides_super_secret_signing_key_2026').encode('utf-8')
 TARIFF_RATE_PER_KWH = 8.5 # INR / local currency per kWh
 
 # Resolve Database Path based on environment
