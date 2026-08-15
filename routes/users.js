@@ -23,7 +23,7 @@ router.post('/register', async (req, res) => {
 
     res.status(200).send({ id: newUser.id, message: "User added!" });
   } catch (err) {
-    res.status(500).send({ error: 'Internal Server Error' });
+    res.status(500).send({ error: err.message });
   }
 });
 
