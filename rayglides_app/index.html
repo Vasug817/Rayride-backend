@@ -59,9 +59,6 @@
       box-shadow: 0 0 15px rgba(16, 185, 129, 0.15);
       border-color: rgba(16, 185, 129, 0.3);
     }
-    .neon-glow-green {
-      box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
-    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col font-sans">
@@ -72,43 +69,56 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    const API_URL = "http://localhost:5050";
+    // Auto-detect production URL vs local server port 5050
+    const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      ? "http://localhost:5050"
+      : window.location.origin;
 
     function App() {
       const [user, setUser] = useState(null);
       const [token, setToken] = useState(null);
-      const [view, setView] = useState("login"); // login, signup, driver_dashboard, driver_map, driver_savings, admin_dashboard
+      const [view, setView] = useState("login"); // login, signup, driver_dashboard, driver_rides, driver_savings, driver_profile, admin_dashboard
       const [showGoogleModal, setShowGoogleModal] = useState(false);
       const [loading, setLoading] = useState(false);
       const [alertMsg, setAlertMsg] = useState(null);
 
-      // Telemetry & Table States
+      // System Telemetry & Rides Data
       const [telemetry, setTelemetry] = useState(null);
       const [savings, setSavings] = useState([]);
+      const [availableRides, setAvailableRides] = useState([]);
+      const [ridesHistory, setRidesHistory] = useState([]);
+      const [activeRide, setActiveRide] = useState(null);
+      
+      // Admin Panel Lists
       const [adminUsers, setAdminUsers] = useState([]);
       const [adminFleet, setAdminFleet] = useState([]);
+      const [adminRides, setAdminRides] = useState([]);
       const [selectedFleetVehicle, setSelectedFleetVehicle] = useState(null);
 
-      // Auth credentials fields
-      const [authMode, setAuthMode] = useState("password"); // password or otp
+      // Auth state inputs
+      const [authMode, setAuthMode] = useState("password");
       const [email, setEmail] = useState("");
       const [phone, setPhone] = useState("");
       const [name, setName] = useState("");
       const [password, setPassword] = useState("");
       const [otpCode, setOtpCode] = useState("");
       const [sentOtpContact, setSentOtpContact] = useState("");
+      
+      // Profile states
+      const [emergencyName, setEmergencyName] = useState("");
+      const [emergencyPhone, setEmergencyPhone] = useState("");
 
       const showAlert = (msg) => {
         setAlertMsg(msg);
         setTimeout(() => setAlertMsg(null), 4000);
       };
 
-      // Periodic load of telemetry if role = driver
+      // Periodic driver updates
       useEffect(() => {
         if (!token || !user) return;
         if (user.role !== 'driver') return;
 
-        const fetchStatus = () => {
+        const loadTelemetry = () => {
           fetch(`${API_URL}/api/driver/vehicle-status`, {
             headers: { "Authorization": `Bearer ${token}` }
           })
@@ -116,28 +126,57 @@
           .then(data => {
             if (!data.error) setTelemetry(data);
           })
-          .catch(err => console.log("Fetch status error:", err));
+          .catch(err => console.log("Telemetry load error:", err));
         };
 
-        const fetchSavings = () => {
+        const loadRides = () => {
+          // Available Rides
+          fetch(`${API_URL}/api/rides/available`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) setAvailableRides(data);
+          });
+
+          // Driver history
+          fetch(`${API_URL}/api/driver/rides-history`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) {
+              setRidesHistory(data);
+              // Find active accepted/started ride
+              const active = data.find(r => r.status === 'accepted' || r.status === 'started');
+              setActiveRide(active || null);
+            }
+          });
+        };
+
+        const loadSavings = () => {
           fetch(`${API_URL}/api/driver/savings-summary`, {
             headers: { "Authorization": `Bearer ${token}` }
           })
           .then(res => res.json())
           .then(data => {
             if (!data.error) setSavings(data);
-          })
-          .catch(err => console.log("Fetch savings error:", err));
+          });
         };
 
-        fetchStatus();
-        fetchSavings();
+        loadTelemetry();
+        loadRides();
+        loadSavings();
 
-        const statusInterval = setInterval(fetchStatus, 3000);
-        return () => clearInterval(statusInterval);
+        const interval = setInterval(() => {
+          loadTelemetry();
+          loadRides();
+        }, 3000);
+
+        return () => clearInterval(interval);
       }, [token, user]);
 
-      // Periodic load of fleet tables if role = admin
+      // Periodic admin updates
       useEffect(() => {
         if (!token || !user) return;
         if (user.role !== 'admin') return;
@@ -163,6 +202,14 @@
                 if (updated) setSelectedFleetVehicle(updated);
               }
             }
+          });
+
+          fetch(`${API_URL}/api/admin/rides`, {
+            headers: { "Authorization": `Bearer ${token}` }
+          })
+          .then(res => res.json())
+          .then(data => {
+            if (!data.error) setAdminRides(data);
           });
         };
 
@@ -198,7 +245,7 @@
             } else {
               setView("driver_dashboard");
             }
-            showAlert(`Logged in successfully as ${data.user.name}`);
+            showAlert(`Welcome, ${data.user.name}!`);
           }
         })
         .catch(err => {
@@ -213,7 +260,7 @@
         fetch(`${API_URL}/api/auth/signup`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, email, phone, password })
+          body: JSON.stringify({ name, email, phone, password, emergency_name: emergencyName, emergency_phone: emergencyPhone })
         })
         .then(res => res.json())
         .then(data => {
@@ -221,7 +268,7 @@
           if (data.error) {
             showAlert(data.error);
           } else {
-            showAlert("Signup successful! Please sign in with your new credentials.");
+            showAlert("Signup successful! Please sign in.");
             setView("login");
           }
         })
@@ -239,7 +286,7 @@
         fetch(`${API_URL}/api/auth/send-otp`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contact_info: contact })
+          body: JSON.stringify({ contact_info: contact, test: true })
         })
         .then(res => res.json())
         .then(data => {
@@ -276,7 +323,105 @@
         })
         .catch(err => {
           setLoading(false);
-          showAlert("Google Sign-In gateway failure.");
+          showAlert("Google Sign-In failed.");
+        });
+      };
+
+      // Create Mock Ride Request (simulating a customer)
+      const bookMockRide = () => {
+        const pickups = ['Delhi Cargo Terminal', 'Okhla Phase 3 Depot', 'Noida Logistics SEZ', 'Gurgaon Gateway'];
+        const dropoffs = ['Connaught Place', 'Vashi Cargo Hub', 'Koramangala Commercial Yard', 'Indiranagar Depot'];
+        const pickup = pickups[Math.floor(Math.random() * pickups.length)];
+        const dropoff = dropoffs[Math.floor(Math.random() * dropoffs.length)];
+        const fare = Math.floor(250 + Math.random() * 500);
+
+        fetch(`${API_URL}/api/rides/create`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rider_name: "Indian Logistics Ltd", pickup_location: pickup, dropoff_location: dropoff, fare })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            showAlert("Mock customer order registered! Check 'Available Deliveries' tab.");
+          }
+        });
+      };
+
+      // Accept Ride
+      const acceptOrder = (rideId) => {
+        fetch(`${API_URL}/api/rides/accept`, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ ride_id: rideId })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            showAlert(data.error);
+          } else {
+            showAlert("Delivery accepted! Commencing tracking...");
+          }
+        });
+      };
+
+      // Update Ride Status
+      const updateRideStatus = (rideId, nextStatus) => {
+        fetch(`${API_URL}/api/rides/update-status`, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ ride_id: rideId, status: nextStatus })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            showAlert(data.error);
+          } else {
+            showAlert(`Delivery status updated: ${nextStatus.toUpperCase()}`);
+          }
+        });
+      };
+
+      // Vehicle Loader Select
+      const handleVehicleChange = (modelType) => {
+        fetch(`${API_URL}/api/driver/select-vehicle`, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ model_type: modelType })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            showAlert(`Configured registered EV vehicle type: ${modelType === '3_wheeler' ? 'Mahindra Zor' : 'Tata Ace'}`);
+          }
+        });
+      };
+
+      // Update Emergency Contact details
+      const saveEmergencyProfile = (e) => {
+        e.preventDefault();
+        fetch(`${API_URL}/api/driver/update-profile`, {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ emergency_name: emergencyName, emergency_phone: emergencyPhone })
+        })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            showAlert("Emergency profile details saved.");
+          }
         });
       };
 
@@ -330,10 +475,10 @@
             </div>
           )}
 
-          {/* Views Layout */}
+          {/* Core Content Views */}
           <div className="flex-grow flex flex-col">
             
-            {/* LOGIN VIEW */}
+            {/* LOGIN PAGE */}
             {view === "login" && (
               <div className="flex-grow flex items-center justify-center p-6 bg-radial bg-gradient-to-tr from-[#020617] to-[#0F172A]">
                 <div className="w-full max-w-sm glass-card p-6 rounded-3xl border border-gray-800 shadow-2xl relative overflow-hidden">
@@ -377,7 +522,7 @@
                         disabled={loading}
                         className="w-full bg-gradient-to-r from-cyberGreen-500 to-electricBlue-600 font-bold py-2.5 rounded-xl text-sm hover:opacity-90 neon-border-blue text-white"
                       >
-                        {loading ? "Connecting to EMS..." : "Sign In"}
+                        {loading ? "Authenticating EMS..." : "Sign In"}
                       </button>
                     </form>
                   ) : (
@@ -392,13 +537,13 @@
                               setEmail(e.target.value);
                               setPhone(e.target.value);
                             }}
-                            className="flex-grow bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
+                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-cyberGreen-500 text-white" 
                             placeholder="Email or +91..."
                           />
                           <button 
                             type="button" 
                             onClick={sendOtp}
-                            className="bg-gray-850 hover:bg-gray-800 border border-gray-700 text-xs px-3 rounded-xl font-semibold"
+                            className="bg-gray-850 hover:bg-gray-800 border border-gray-700 text-xs px-3 rounded-xl font-semibold text-white"
                           >
                             Send OTP
                           </button>
@@ -436,7 +581,7 @@
 
                   <button 
                     onClick={() => setShowGoogleModal(true)}
-                    className="w-full bg-gray-950 hover:bg-gray-900 border border-gray-800 flex items-center justify-center gap-3 py-2 rounded-xl text-sm font-semibold transition"
+                    className="w-full bg-gray-950 hover:bg-gray-900 border border-gray-800 flex items-center justify-center gap-3 py-2 rounded-xl text-sm font-semibold transition text-white"
                   >
                     <img src="https://www.google.com/favicon.ico" className="w-4 h-4" />
                     Sign In with Google ID
@@ -449,7 +594,7 @@
               </div>
             )}
 
-            {/* SIGNUP VIEW */}
+            {/* SIGNUP PAGE */}
             {view === "signup" && (
               <div className="flex-grow flex items-center justify-center p-6 bg-radial bg-gradient-to-tr from-[#020617] to-[#0F172A]">
                 <div className="w-full max-w-sm glass-card p-6 rounded-3xl border border-gray-800 shadow-2xl relative overflow-hidden">
@@ -498,6 +643,29 @@
                         placeholder="••••••••"
                       />
                     </div>
+                    
+                    <div className="border-t border-gray-800 pt-3">
+                      <h4 className="text-[10px] font-bold text-gray-400 uppercase mb-2">Emergency Contact (Required for safety)</h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input 
+                          type="text" 
+                          required
+                          value={emergencyName}
+                          onChange={(e) => setEmergencyName(e.target.value)}
+                          className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white" 
+                          placeholder="Contact Name"
+                        />
+                        <input 
+                          type="tel" 
+                          required
+                          value={emergencyPhone}
+                          onChange={(e) => setEmergencyPhone(e.target.value)}
+                          className="bg-gray-950 border border-gray-800 rounded-lg px-2.5 py-1.5 text-xs text-white" 
+                          placeholder="Phone Number"
+                        />
+                      </div>
+                    </div>
+
                     <button 
                       type="submit" 
                       className="w-full bg-gradient-to-r from-cyberGreen-500 to-electricBlue-600 font-bold py-2.5 rounded-xl text-sm hover:opacity-90 neon-border-blue text-white"
@@ -602,7 +770,7 @@
                   </div>
                 </div>
 
-                {/* Graphics Cargo EV Image Loader */}
+                {/* Vehicle Selection Display */}
                 <div className="glass-card p-4 rounded-2xl relative overflow-hidden flex flex-col border-l-4 border-electricBlue-500">
                   <h3 className="text-sm font-bold text-white mb-2 self-start flex items-center gap-2">
                     <i data-lucide="truck" className="w-4 h-4 text-electricBlue-400"></i>
@@ -622,40 +790,170 @@
                       {telemetry.model_type === "3_wheeler" ? "MAHINDRA TREO ZOR SOLAR" : "TATA ACE EV SOLAR"}
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-2 mt-3">
+                    <button 
+                      onClick={() => handleVehicleChange("3_wheeler")}
+                      className={`py-1.5 rounded-lg text-xs font-semibold border ${
+                        telemetry.model_type === "3_wheeler" ? "bg-cyberGreen-500/20 text-cyberGreen-400 border-cyberGreen-500/50" : "bg-gray-950 text-gray-400 border-gray-800"
+                      }`}
+                    >
+                      Select Mahindra Zor
+                    </button>
+                    <button 
+                      onClick={() => handleVehicleChange("4_wheeler")}
+                      className={`py-1.5 rounded-lg text-xs font-semibold border ${
+                        telemetry.model_type === "4_wheeler" ? "bg-electricBlue-500/20 text-electricBlue-400 border-electricBlue-500/50" : "bg-gray-950 text-gray-400 border-gray-800"
+                      }`}
+                    >
+                      Select Tata Ace EV
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
 
-            {/* DRIVER MAP VIEW */}
-            {view === "driver_map" && telemetry && (
-              <div className="max-w-md mx-auto w-full flex-grow flex flex-col relative min-h-[450px] pb-20">
-                <div className="absolute inset-0 bg-gray-900 overflow-hidden flex items-center justify-center">
-                  {/* Map streets grid */}
-                  <div className="absolute inset-0 opacity-10 bg-[linear-gradient(to_right,#3B82F6_1px,transparent_1px),linear-gradient(to_bottom,#3B82F6_1px,transparent_1px)] bg-[size:45px_45px]"></div>
-                  
-                  {/* Map marker */}
-                  <div className="absolute text-center transform -translate-x-1/2 -translate-y-1/2">
-                    <div className="w-16 h-16 rounded-full bg-cyberGreen-500/10 absolute -left-5 -top-5 animate-ping"></div>
-                    <div className="w-6 h-6 rounded-full bg-cyberGreen-500 border-2 border-white flex items-center justify-center shadow-lg relative z-10">
-                      <i data-lucide="truck" className="w-3.5 h-3.5 text-white"></i>
+            {/* DRIVER RIDES & DELIVERIES VIEW */}
+            {view === "driver_rides" && (
+              <div className="max-w-md mx-auto w-full p-4 space-y-4 pb-20">
+                
+                {/* Active Ride Card */}
+                {activeRide ? (
+                  <div className="glass-card p-5 rounded-2xl relative overflow-hidden border-l-4 border-cyberGreen-500 space-y-4 animate-fadeIn">
+                    <div className="absolute top-0 right-0 bg-cyberGreen-500/10 text-cyberGreen-400 text-[9px] px-2.5 py-0.5 rounded-bl font-mono font-bold">ACTIVE ORDER</div>
+                    <div>
+                      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Ongoing Cargo Delivery</h3>
+                      <h2 className="text-lg font-bold text-white mt-1">{activeRide.rider_name}</h2>
                     </div>
-                    <div className="mt-2 bg-gray-950/95 text-[10px] px-2.5 py-0.5 rounded border border-cyberGreen-500/40 text-cyberGreen-400 font-mono shadow-2xl font-bold">
-                      {telemetry.license_plate}
+
+                    <div className="space-y-2 text-xs">
+                      <div className="flex gap-2">
+                        <i data-lucide="map-pin" className="w-4 h-4 text-cyberGreen-500"></i>
+                        <div><span className="text-gray-400">Pickup:</span> <span className="text-white font-semibold">{activeRide.pickup_location}</span></div>
+                      </div>
+                      <div className="flex gap-2">
+                        <i data-lucide="navigation" className="w-4 h-4 text-electricBlue-500"></i>
+                        <div><span className="text-gray-400">Dropoff:</span> <span className="text-white font-semibold">{activeRide.dropoff_location}</span></div>
+                      </div>
+                      <div className="flex justify-between items-center bg-gray-950/40 p-2 rounded-xl mt-3 border border-gray-800/40">
+                        <span className="text-gray-400">Earnings:</span>
+                        <span className="font-extrabold text-sm text-yellow-500">₹{activeRide.fare}</span>
+                      </div>
                     </div>
+
+                    {/* Timeline Tracker */}
+                    <div className="flex justify-between items-center pt-3 border-t border-gray-800 text-[10px]">
+                      <div className="flex flex-col items-center">
+                        <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold ${
+                          activeRide.status === 'accepted' || activeRide.status === 'started' ? 'bg-cyberGreen-500 text-white' : 'bg-gray-800'
+                        }`}>✓</span>
+                        <span className="mt-1 text-gray-400">Accepted</span>
+                      </div>
+                      <div className="flex-grow h-0.5 bg-gray-800 mx-2"></div>
+                      <div className="flex flex-col items-center">
+                        <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold ${
+                          activeRide.status === 'started' ? 'bg-cyberGreen-500 text-white' : 'bg-gray-800 text-gray-500'
+                        }`}>2</span>
+                        <span className="mt-1 text-gray-400">In Transit</span>
+                      </div>
+                      <div className="flex-grow h-0.5 bg-gray-800 mx-2"></div>
+                      <div className="flex flex-col items-center">
+                        <span className="w-3.5 h-3.5 rounded-full bg-gray-800 flex items-center justify-center text-gray-500">3</span>
+                        <span className="mt-1 text-gray-500">Delivered</span>
+                      </div>
+                    </div>
+
+                    {/* Control Buttons */}
+                    <div className="grid grid-cols-2 gap-2 mt-4">
+                      {activeRide.status === 'accepted' ? (
+                        <button 
+                          onClick={() => updateRideStatus(activeRide.id, 'started')}
+                          className="w-full py-2 bg-electricBlue-500 hover:bg-electricBlue-600 font-bold rounded-xl text-xs text-white"
+                        >
+                          Start Journey
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => updateRideStatus(activeRide.id, 'completed')}
+                          className="w-full py-2 bg-cyberGreen-500 hover:bg-cyberGreen-600 font-bold rounded-xl text-xs text-white"
+                        >
+                          Mark Delivered
+                        </button>
+                      )}
+                      
+                      {/* Emergency Contact Dialer Trigger */}
+                      <a 
+                        href={`tel:${user.emergency_phone || '112'}`}
+                        className="py-2 bg-red-950/20 hover:bg-red-950/40 text-red-400 border border-red-900/30 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition"
+                      >
+                        <i data-lucide="phone-call" className="w-3.5 h-3.5"></i>
+                        Emergency Call
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="glass-card p-5 rounded-2xl text-center text-gray-400 text-xs">
+                    <i data-lucide="package-open" className="w-8 h-8 text-gray-600 mx-auto mb-2"></i>
+                    No active deliveries. Select an available order below to start earning.
+                  </div>
+                )}
+
+                {/* Available Deliveries Board */}
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">Available Deliveries</h3>
+                    <button 
+                      onClick={bookMockRide}
+                      className="text-[10px] bg-cyberGreen-500/10 text-cyberGreen-400 border border-cyberGreen-500/20 px-2 py-0.5 rounded hover:bg-cyberGreen-500/20 font-bold"
+                    >
+                      + Create Mock Order
+                    </button>
                   </div>
 
-                  <div className="absolute bottom-4 left-4 right-4 glass-card p-4 rounded-xl space-y-2 z-20">
-                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest">VEHICLE LOCATION TRACKER</h3>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-400">Position Coordinates:</span>
-                      <span className="font-mono text-cyberGreen-400">{telemetry.latitude.toFixed(6)}°N, {telemetry.longitude.toFixed(6)}°E</span>
-                    </div>
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="text-gray-400">Battery Status:</span>
-                      <span className="font-semibold text-white">{telemetry.soc}% SOC (Health: {telemetry.soh}%)</span>
-                    </div>
+                  <div className="space-y-2.5 max-h-[300px] overflow-y-auto">
+                    {availableRides.length === 0 ? (
+                      <div className="text-center text-xs text-gray-500 py-6">
+                        No pending orders. Click "+ Create Mock Order" to request one!
+                      </div>
+                    ) : (
+                      availableRides.map((r, idx) => (
+                        <div key={idx} className="bg-gray-950/30 p-3.5 rounded-xl border border-gray-800/40 flex justify-between items-center transition hover:border-gray-700">
+                          <div>
+                            <span className="text-[10px] text-cyberGreen-400 font-bold uppercase">{r.rider_name}</span>
+                            <span className="font-bold text-sm block mt-0.5 text-white">{r.pickup_location} → {r.dropoff_location}</span>
+                            <span className="font-mono text-xs text-yellow-500 font-bold mt-1 block">₹{r.fare}</span>
+                          </div>
+                          <button 
+                            onClick={() => acceptOrder(r.id)}
+                            className="bg-cyberGreen-500 hover:bg-cyberGreen-600 font-bold px-3 py-1.5 rounded-lg text-xs text-white"
+                          >
+                            Accept
+                          </button>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
+
+                {/* History Card Log */}
+                <div className="glass-card p-4 rounded-2xl space-y-3">
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest border-b border-gray-800 pb-2">Past Deliveries History</h3>
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {ridesHistory.filter(r => r.status === 'completed').length === 0 ? (
+                      <div className="text-center text-xs text-gray-500 py-4">No completed orders found.</div>
+                    ) : (
+                      ridesHistory.filter(r => r.status === 'completed').map((r, idx) => (
+                        <div key={idx} className="bg-gray-950/10 p-2.5 rounded-xl border border-gray-850 flex justify-between items-center text-xs">
+                          <div>
+                            <span className="text-[10px] text-gray-500 block">{r.completed_at || r.created_at}</span>
+                            <span className="font-bold text-white block mt-0.5">{r.pickup_location} → {r.dropoff_location}</span>
+                          </div>
+                          <span className="px-2 py-0.5 bg-cyberGreen-500/10 text-cyberGreen-400 rounded text-[10px] font-bold">COMPLETED</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
               </div>
             )}
 
@@ -695,6 +993,72 @@
               </div>
             )}
 
+            {/* DRIVER PROFILE EDIT VIEW */}
+            {view === "driver_profile" && (
+              <div className="max-w-md mx-auto w-full p-4 space-y-4 pb-20">
+                <div className="glass-card p-5 rounded-2xl border border-gray-800/80 space-y-4">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <i data-lucide="settings" className="w-4 h-4 text-cyberGreen-500"></i>
+                    Driver Profile Settings
+                  </h3>
+                  
+                  <form onSubmit={saveEmergencyProfile} className="space-y-4">
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Full Name</label>
+                      <input 
+                        type="text" 
+                        disabled
+                        value={user.name}
+                        className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500 focus:outline-none" 
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-400 block mb-1">Email ID</label>
+                      <input 
+                        type="email" 
+                        disabled
+                        value={user.email || ''}
+                        className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-sm text-gray-500 focus:outline-none" 
+                      />
+                    </div>
+
+                    <div className="border-t border-gray-800 pt-3 space-y-3">
+                      <h4 className="text-xs font-bold text-gray-300 uppercase">Emergency Contact Info</h4>
+                      <div>
+                        <label className="text-[10px] text-gray-400 block mb-1">Emergency Name</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={emergencyName}
+                          onChange={(e) => setEmergencyName(e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-cyberGreen-500" 
+                          placeholder="Contact Name"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-gray-400 block mb-1">Emergency Phone Number</label>
+                        <input 
+                          type="tel" 
+                          required
+                          value={emergencyPhone}
+                          onChange={(e) => setEmergencyPhone(e.target.value)}
+                          className="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-cyberGreen-500" 
+                          placeholder="+91..."
+                        />
+                      </div>
+                    </div>
+
+                    <button 
+                      type="submit" 
+                      className="w-full bg-gradient-to-r from-cyberGreen-500 to-electricBlue-600 font-bold py-2 rounded-xl text-xs text-white"
+                    >
+                      Save Settings
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
             {/* ADMIN DASHBOARD VIEW */}
             {view === "admin_dashboard" && (
               <div className="flex-grow flex flex-col lg:flex-row min-h-screen">
@@ -728,7 +1092,7 @@
                   </button>
                 </aside>
 
-                {/* Admin Main Workstation */}
+                {/* Admin Main workstation */}
                 <main className="flex-grow p-6 space-y-6 overflow-y-auto">
                   {/* Grid Counters */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -766,10 +1130,9 @@
 
                     <div className="glass-card p-4 rounded-2xl flex items-center justify-between border-l-4 border-purple-500">
                       <div>
-                        <span className="text-[10px] text-gray-400 block uppercase font-semibold">Broker Network</span>
-                        <span className="text-xs font-extrabold text-purple-400 mt-2 block flex items-center gap-1.5 font-mono">
-                          <span className="w-2.5 h-2.5 rounded-full bg-purple-500 animate-ping inline-block"></span>
-                          ONLINE (127.0.0.1)
+                        <span className="text-[10px] text-gray-400 block uppercase font-semibold">Rides / Deliveries</span>
+                        <span className="text-2xl font-extrabold text-purple-400 mt-1 block font-mono">
+                          {adminRides.length} Total
                         </span>
                       </div>
                       <div className="w-10 h-10 bg-purple-500/10 rounded-xl flex items-center justify-center">
@@ -793,7 +1156,7 @@
                               <th className="py-2.5">Device MAC</th>
                               <th className="py-2.5">Model</th>
                               <th className="py-2.5">Battery Status</th>
-                              <th className="py-2.5">Solar input</th>
+                              <th className="py-2.5">Solar Input</th>
                               <th className="py-2.5">Daily savings</th>
                               <th className="py-2.5 text-center">Track</th>
                             </tr>
@@ -850,6 +1213,48 @@
                     </div>
                   </div>
 
+                  {/* Active Rides / Delivery Orders Table (Admin) */}
+                  <div className="glass-card p-5 rounded-3xl border border-gray-800/80 space-y-4">
+                    <h3 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                      <i data-lucide="activity" className="w-4 h-4 text-yellow-500"></i>
+                      All Fleet Rides & Cargo Deliveries System
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-gray-800 text-gray-400">
+                            <th className="py-2.5">Order ID</th>
+                            <th className="py-2.5">Rider Name</th>
+                            <th className="py-2.5">Route</th>
+                            <th className="py-2.5">Fare</th>
+                            <th className="py-2.5">Status</th>
+                            <th className="py-2.5">Assigned Driver</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800/40 text-gray-200">
+                          {adminRides.map((r, idx) => (
+                            <tr key={idx}>
+                              <td className="py-3 font-mono text-gray-400">#{r.id}</td>
+                              <td className="py-3 font-semibold">{r.rider_name}</td>
+                              <td className="py-3">{r.pickup_location} → {r.dropoff_location}</td>
+                              <td className="py-3 font-bold text-yellow-500">₹{r.fare}</td>
+                              <td className="py-3">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                  r.status === 'completed' ? 'bg-cyberGreen-500/10 text-cyberGreen-400' :
+                                  r.status === 'started' ? 'bg-electricBlue-500/10 text-electricBlue-400 animate-pulse' :
+                                  r.status === 'accepted' ? 'bg-yellow-500/10 text-yellow-400' : 'bg-gray-800 text-gray-400'
+                                }`}>
+                                  {r.status}
+                                </span>
+                              </td>
+                              <td className="py-3 font-semibold text-gray-300">{r.driver_name || 'Unassigned'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
                   {/* Active GPS map visualizer */}
                   {selectedFleetVehicle && (
                     <div className="glass-card p-5 rounded-3xl border border-gray-800/80 space-y-4 animate-fadeIn">
@@ -899,11 +1304,11 @@
                 Home
               </button>
               <button 
-                onClick={() => setView("driver_map")} 
-                className={`flex flex-col items-center gap-1 text-[10px] ${view === "driver_map" ? "text-cyberGreen-400 font-bold" : "text-gray-400"}`}
+                onClick={() => setView("driver_rides")} 
+                className={`flex flex-col items-center gap-1 text-[10px] ${view === "driver_rides" ? "text-cyberGreen-400 font-bold" : "text-gray-400"}`}
               >
-                <i data-lucide="map" className="w-4 h-4"></i>
-                Tracker
+                <i data-lucide="package" className="w-4 h-4"></i>
+                Deliveries
               </button>
               <button 
                 onClick={() => setView("driver_savings")} 
@@ -911,6 +1316,17 @@
               >
                 <i data-lucide="dollar-sign" className="w-4 h-4"></i>
                 Savings
+              </button>
+              <button 
+                onClick={() => {
+                  setEmergencyName(user.emergency_name || "");
+                  setEmergencyPhone(user.emergency_phone || "");
+                  setView("driver_profile");
+                }} 
+                className={`flex flex-col items-center gap-1 text-[10px] ${view === "driver_profile" ? "text-cyberGreen-400 font-bold" : "text-gray-400"}`}
+              >
+                <i data-lucide="settings" className="w-4 h-4"></i>
+                Settings
               </button>
               <button 
                 onClick={() => {

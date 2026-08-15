@@ -63,7 +63,7 @@ def test_production_api():
             return
 
     # 3. Test Send OTP
-    otp_req = {"contact_info": "test@rayglides.com"}
+    otp_req = {"contact_info": "test@rayglides.com", "test": True}
     res, code = request("/api/auth/send-otp", "POST", otp_req)
     if code == 200 and "code" in res:
         otp_code = res["code"]
@@ -127,8 +127,45 @@ def test_production_api():
         print(f"[FAIL] 9. Admin Fleet list failed: {res}")
         return
 
+    # 10. Test Payments Create Order
+    order_req = {"amount": 25000} # ₹250
+    res, code = request("/api/payments/create-order", "POST", order_req, token=driver_token)
+    if code == 200 and "orderId" in res:
+        order_id = res["orderId"]
+        print(f"[PASS] 10. Payments Create Order successful (order_id: {order_id}).")
+    else:
+        print(f"[FAIL] 10. Payments Create Order failed: {res}")
+        return
+
+    # 11. Test Subscription Checkout
+    sub_req = {"plan_id": "pro"}
+    res, code = request("/api/subscriptions/checkout", "POST", sub_req, token=driver_token)
+    if code == 200 and "order_id" in res:
+        sub_order_id = res["order_id"]
+        print(f"[PASS] 11. Subscription Checkout successful (sub_order_id: {sub_order_id}).")
+    else:
+        print(f"[FAIL] 11. Subscription Checkout failed: {res}")
+        return
+
+    # 12. Test Payment Verify Signature
+    import hmac, hashlib
+    secret = "test_razorpay_secret_key_2026"
+    msg = f"{order_id}|pay_testpayment123".encode('utf-8')
+    sig = hmac.new(secret.encode('utf-8'), msg, hashlib.sha256).hexdigest()
+    verify_req = {
+        "razorpay_order_id": order_id,
+        "razorpay_payment_id": "pay_testpayment123",
+        "razorpay_signature": sig
+    }
+    res, code = request("/api/payments/verify", "POST", verify_req, token=driver_token)
+    if code == 200 and res.get("success") == True:
+        print("[PASS] 12. Payment Signature Verification successful.")
+    else:
+        print(f"[FAIL] 12. Payment Verification failed: {res}")
+        return
+
     print("\n=======================================================")
-    print("  ALL API INTEGRATION TESTS PASSED SUCCESSFULLY! (9/9)")
+    print("  ALL API INTEGRATION TESTS PASSED SUCCESSFULLY! (12/12)")
     print("=======================================================\n")
 
 if __name__ == '__main__':

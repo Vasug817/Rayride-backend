@@ -5666,3 +5666,5 @@
 /node_modules/.package-lock.json
 /temp/serviceAccountKey.json
 /serviceAccountKey.json
+.vercel
+.env*
