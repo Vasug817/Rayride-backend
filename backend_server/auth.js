@@ -58,7 +58,7 @@ router.post('/send-otp', (req, res) => {
   `, [contact_info, code, expiresAt], (err) => {
     if (err) return res.status(500).json({ error: err.message });
     
-    console.log(`\n[OTP Generator] Generated code ${code} for ${contact_info} (valid until ${expiresAt})\n`);
+    console.log("[OTP Generator] OTP generated and saved securely.");
     
     res.json({
       success: true,

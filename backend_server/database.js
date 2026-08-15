@@ -74,31 +74,48 @@ function initDb() {
       db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_device ON telemetry_history(device_id)`);
       db.run(`CREATE INDEX IF NOT EXISTS idx_telemetry_time ON telemetry_history(timestamp)`);
 
-      // Seed Default Admin and Driver
-      const adminPassHash = bcrypt.hashSync('admin123', 10);
-      const driverPassHash = bcrypt.hashSync('driver123', 10);
-
-      db.run(`
-        INSERT OR IGNORE INTO users (name, email, role, password_hash)
-        VALUES ('RayGlides Administrator', 'admin@rayglides.com', 'admin', ?)
-      `, [adminPassHash]);
-
-      db.run(`
-        INSERT OR IGNORE INTO users (name, email, phone, role, password_hash)
-        VALUES ('Vasu Gupta', 'vasu@rayglides.com', '+919876543210', 'driver', ?)
-      `, [driverPassHash], function(err) {
-        if (err) return reject(err);
-        
-        // If driver was inserted, bind a vehicle
-        const userId = this.lastID || 2;
+      // Seed default admin and driver only if explicitly requested in environment variables or testing mode
+      let adminEmail = process.env.ADMIN_EMAIL;
+      let adminPwd = process.env.ADMIN_PASSWORD;
+      let driverEmail = process.env.DRIVER_EMAIL;
+      let driverPwd = process.env.DRIVER_PASSWORD;
+      
+      if (process.env.IS_DEVELOPMENT === 'true' || process.env.TESTING === 'true') {
+        adminEmail = adminEmail || 'admin@rayglides.com';
+        adminPwd = adminPwd || 'admin123';
+        driverEmail = driverEmail || 'vasu@rayglides.com';
+        driverPwd = driverPwd || 'driver123';
+      }
+ 
+      if (adminEmail && adminPwd) {
+        const adminPassHash = bcrypt.hashSync(adminPwd, 10);
         db.run(`
-          INSERT OR IGNORE INTO vehicles (user_id, device_id, model_type, license_plate)
-          VALUES (?, 'RayGlides_EMS_9232C8', '3_wheeler', 'DL-3S-EV-1234')
-        `, [userId], (err) => {
+          INSERT OR IGNORE INTO users (name, email, role, password_hash)
+          VALUES ('RayGlides Administrator', ?, 'admin', ?)
+        `, [adminEmail, adminPassHash]);
+      }
+ 
+      if (driverEmail && driverPwd) {
+        const driverPassHash = bcrypt.hashSync(driverPwd, 10);
+        db.run(`
+          INSERT OR IGNORE INTO users (name, email, phone, role, password_hash)
+          VALUES ('Vasu Gupta', ?, '+919876543210', 'driver', ?)
+        `, [driverEmail, driverPassHash], function(err) {
           if (err) return reject(err);
-          resolve();
+          
+          // If driver was inserted, bind a vehicle
+          const userId = this.lastID || 2;
+          db.run(`
+            INSERT OR IGNORE INTO vehicles (user_id, device_id, model_type, license_plate)
+            VALUES (?, 'RayGlides_EMS_9232C8', '3_wheeler', 'DL-3S-EV-1234')
+          `, [userId], (err) => {
+            if (err) return reject(err);
+            resolve();
+          });
         });
-      });
+      } else {
+        resolve();
+      }
     });
   });
 }

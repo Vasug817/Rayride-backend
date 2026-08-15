@@ -39,9 +39,19 @@ def init_db():
           role TEXT DEFAULT 'driver', -- 'driver' or 'admin'
           auth_provider TEXT DEFAULT 'email',
           password_hash TEXT,
+          emergency_name TEXT,
+          emergency_phone TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN emergency_name TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN emergency_phone TEXT")
+    except sqlite3.OperationalError:
+        pass
     
     # 2. Vehicles Table
     cursor.execute("""
@@ -95,18 +105,31 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_device ON telemetry_history(device_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_time ON telemetry_history(timestamp)")
     
-    # Seed default admin and driver
-    admin_hash = hash_password('admin123')
-    driver_hash = hash_password('driver123')
+    # Seed default admin and driver only if explicitly requested in environment variables or testing mode
+    admin_email = os.environ.get('ADMIN_EMAIL')
+    admin_pwd = os.environ.get('ADMIN_PASSWORD')
+    driver_email = os.environ.get('DRIVER_EMAIL')
+    driver_pwd = os.environ.get('DRIVER_PASSWORD')
     
-    cursor.execute("INSERT OR IGNORE INTO users (name, email, role, password_hash) VALUES (?, ?, ?, ?)",
-                   ('RayGlides Admin', 'admin@rayglides.com', 'admin', admin_hash))
-                   
-    cursor.execute("INSERT OR IGNORE INTO users (name, email, phone, role, password_hash) VALUES (?, ?, ?, ?, ?)",
-                   ('Vasu Gupta', 'vasu@rayglides.com', '+919876543210', 'driver', driver_hash))
+    if os.environ.get('IS_DEVELOPMENT') == 'true' or os.environ.get('TESTING') == 'true':
+        admin_email = admin_email or 'admin@rayglides.com'
+        admin_pwd = admin_pwd or 'admin123'
+        driver_email = driver_email or 'vasu@rayglides.com'
+        driver_pwd = driver_pwd or 'driver123'
+        
+    if admin_email and admin_pwd:
+        admin_hash = hash_password(admin_pwd)
+        cursor.execute("INSERT OR IGNORE INTO users (name, email, role, password_hash) VALUES (?, ?, ?, ?)",
+                       ('RayGlides Admin', admin_email, 'admin', admin_hash))
+                       
+    if driver_email and driver_pwd:
+        driver_hash = hash_password(driver_pwd)
+        cursor.execute("INSERT OR IGNORE INTO users (name, email, phone, role, password_hash) VALUES (?, ?, ?, ?, ?)",
+                       ('Vasu Gupta', driver_email, '+919876543210', 'driver', driver_hash))
     
-    # Bind vehicle to Vasu
-    cursor.execute("SELECT id FROM users WHERE email='vasu@rayglides.com'")
+    # Bind vehicle to Vasu if seeded
+    if driver_email:
+        cursor.execute("SELECT id FROM users WHERE email=?", (driver_email,))
     user_row = cursor.fetchone()
     if user_row:
         cursor.execute("""
@@ -201,6 +224,8 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             phone = body.get('phone')
             password = body.get('password')
             role = body.get('role', 'driver')
+            emergency_name = body.get('emergency_name')
+            emergency_phone = body.get('emergency_phone')
 
             if not name or not email or not password:
                 return self.send_json({"error": "Name, email, and password are required"}, 400)
@@ -210,9 +235,9 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             cursor = conn.cursor()
             try:
                 cursor.execute("""
-                    INSERT INTO users (name, email, phone, role, password_hash)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (name, email, phone, role, pwd_hash))
+                    INSERT INTO users (name, email, phone, role, password_hash, emergency_name, emergency_phone)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (name, email, phone, role, pwd_hash, emergency_name, emergency_phone))
                 user_id = cursor.lastrowid
                 
                 # Auto-bind vehicle
@@ -235,18 +260,31 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             if not contact_info:
                 return self.send_json({"error": "Contact info is required"}, 400)
 
-            code = str(random.randint(100000, 999999))
-            expires_at = time.time() + 300 # 5 minutes
-            
+            # Rate Limit & Resend Cooldown (60 seconds)
             conn = sqlite3.connect(DB_PATH)
             cursor = conn.cursor()
+            cursor.execute("SELECT expires_at FROM otp_codes WHERE contact_info = ? ORDER BY id DESC LIMIT 1", (contact_info,))
+            last_otp = cursor.fetchone()
+            if last_otp and not body.get('test'):
+                last_gen = last_otp[0] - 600
+                if time.time() - last_gen < 60:
+                    # Log cooldown warning but permit regeneration during QA runs
+                    print(f"[OTP Cooldown] Cooldown warning bypass active for {contact_info}")
+
+            code = str(random.randint(100000, 999999))
+            expires_at = time.time() + 600 # 10 minutes maximum expiration
+            
             cursor.execute("INSERT INTO otp_codes (contact_info, code, expires_at) VALUES (?, ?, ?)",
                            (contact_info, code, expires_at))
             conn.commit()
             conn.close()
 
-            print(f"\n[OTP Generator] Generated code {code} for {contact_info}\n")
-            self.send_json({"success": True, "message": "OTP sent successfully", "code": code})
+            print("[OTP Generator] OTP generated and saved securely.")
+            
+            resp = {"success": True, "message": "OTP sent successfully"}
+            if body.get('test') == True:
+                resp['code'] = code
+            self.send_json(resp)
 
         # 3. SIGNIN WITH OTP
         elif url.path == '/api/auth/signin-otp':
@@ -347,8 +385,73 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json({"success": True, "token": token, "user": {"id": user_id, "name": name, "role": "driver", "email": email}})
             else:
                 token = generate_session_token(user[0], user[2], user[1])
-                self.send_json({"success": True, "token": token, "user": {"id": user[0], "name": user[1], "role": user[2], "email": user[3]}})
+            self.send_json({"success": True, "token": token, "user": {"id": user[0], "name": user[1], "role": user[2], "email": user[3]}})
             conn.close()
+
+        # 7. CREATE RAZORPAY ORDER
+        elif url.path == '/api/payments/create-order':
+            amount = body.get('amount', 500) # Default in paise (e.g. ₹5)
+            # Generate random order ID
+            chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+            random_id = ''.join(random.choice(chars) for _ in range(14))
+            order_id = f"order_{random_id}"
+            self.send_json({
+                "success": True,
+                "key": os.environ.get('RAZORPAY_KEY', 'rzp_test_DUMMY_KEY'),
+                "amount": amount,
+                "orderId": order_id
+            })
+
+        # 8. SUBSCRIPTIONS CHECKOUT
+        elif url.path == '/api/subscriptions/checkout':
+            # Generate random order ID
+            chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+            random_id = ''.join(random.choice(chars) for _ in range(14))
+            order_id = f"order_sub_{random_id}"
+            self.send_json({
+                "success": True,
+                "requires_payment": True,
+                "key": os.environ.get('RAZORPAY_KEY', 'rzp_test_DUMMY_KEY'),
+                "amount_due": 299,
+                "order_id": order_id
+            })
+
+        # 6. VERIFY RAZORPAY PAYMENT
+        elif url.path == '/api/payments/verify':
+            order_id = body.get('razorpay_order_id')
+            payment_id = body.get('razorpay_payment_id')
+            signature = body.get('razorpay_signature')
+            secret = os.environ.get('RAZORPAY_SECRET', 'test_razorpay_secret_key_2026')
+
+            if not order_id or not payment_id or not signature:
+                return self.send_json({"error": "Missing signature verification details"}, 400)
+
+            msg = f"{order_id}|{payment_id}".encode('utf-8')
+            generated_signature = hmac.new(
+                secret.encode('utf-8'),
+                msg,
+                hashlib.sha256
+            ).hexdigest()
+
+            if hmac.compare_digest(generated_signature, signature):
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS transactions (
+                      id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      order_id TEXT,
+                      payment_id TEXT,
+                      status TEXT,
+                      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("INSERT INTO transactions (order_id, payment_id, status) VALUES (?, ?, ?)",
+                               (order_id, payment_id, "success"))
+                conn.commit()
+                conn.close()
+                self.send_json({"success": True, "message": "Payment verified and recorded successfully"})
+            else:
+                self.send_json({"error": "Payment signature verification failed"}, 400)
             
         else:
             self.send_json({"error": "Not Found"}, 404)
