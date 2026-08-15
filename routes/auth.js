@@ -74,8 +74,9 @@ router.post('/send-otp', async (req, res) => {
       createdAt: Date.now()
     });
 
-    // Real-time SMS delivery implementation via Twilio if configured
-    if (process.env.OTP_PROVIDER === 'twilio' && process.env.OTP_PROVIDER_API_KEY) {
+    // Real-time SMS delivery implementation via Twilio/MSG91 if configured
+    const provider = process.env.OTP_PROVIDER ? process.env.OTP_PROVIDER.toLowerCase() : '';
+    if (provider === 'twilio' && process.env.OTP_PROVIDER_API_KEY) {
       try {
         const parts = process.env.OTP_PROVIDER_API_KEY.split(':');
         const accountSid = parts[0];
@@ -100,7 +101,31 @@ router.post('/send-otp', async (req, res) => {
           });
         }
       } catch (smsErr) {
-        console.error("SMS delivery failed:", smsErr.message);
+        console.error("SMS delivery failed via Twilio:", smsErr.message);
+      }
+    } else if ((provider === 'msg91' || provider === 'msg19') && process.env.OTP_PROVIDER_API_KEY) {
+      try {
+        const cleanPhone = contact_info.replace(/[^0-9]/g, ''); // Normalizes to 91XXXXXXXXXX
+        const authKey = process.env.OTP_PROVIDER_API_KEY;
+        const templateId = process.env.OTP_TEMPLATE_ID || process.env.TEMPLATE_ID || '';
+        
+        let url = `https://control.msg91.com/api/v5/otp?mobile=${cleanPhone}&otp=${code}`;
+        if (templateId) {
+          url += `&template_id=${templateId}`;
+        }
+        
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'authkey': authKey,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        const resText = await response.text();
+        console.log("MSG91 API Response:", resText);
+      } catch (smsErr) {
+        console.error("SMS delivery failed via MSG91:", smsErr.message);
       }
     }
 
