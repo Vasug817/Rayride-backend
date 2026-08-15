@@ -12,6 +12,9 @@ app.use(cors());
 app.use(express.json());
 
 // Routes
+const authRoute = require('./routes/auth');
+app.use('/api/auth', authRoute);
+
 const usersRoute = require('./routes/users');
 app.use('/api/users', usersRoute);
 
@@ -41,6 +44,9 @@ app.use('/api/queue', queueRoutes);
 
 const syncRoutes = require('./routes/sync');
 app.use('/api/sync', syncRoutes);
+
+const paymentsRoute = require('./routes/payments');
+app.use('/api/payments', paymentsRoute);
 
 
 // Start Server
