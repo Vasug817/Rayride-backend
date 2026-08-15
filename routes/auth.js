@@ -269,4 +269,18 @@ router.post('/google-login', async (req, res) => {
   }
 });
 
+// GET /api/auth/otp-status
+router.get('/otp-status', (req, res) => {
+  const provider = process.env.OTP_PROVIDER;
+  const apiKey = process.env.OTP_PROVIDER_API_KEY;
+  
+  res.json({
+    provider: provider || 'not_configured',
+    hasApiKey: !!apiKey,
+    apiKeyLength: apiKey ? apiKey.length : 0,
+    apiKeyParts: apiKey ? apiKey.split(':').length : 0,
+    fromNumber: process.env.TWILIO_FROM_NUMBER || 'not_configured'
+  });
+});
+
 module.exports = router;
