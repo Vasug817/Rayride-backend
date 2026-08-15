@@ -5,8 +5,8 @@ const router = express.Router();
 const db = require('../services/firebase');
 
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY,
-  key_secret: process.env.RAZORPAY_SECRET
+  key_id: process.env.RAZORPAY_KEY || process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_SECRET || process.env.RAZORPAY_KEY_SECRET
 });
 
 // ✅ Create payment order
@@ -42,7 +42,7 @@ router.post('/verify-payment', async (req, res) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
   const generated_signature = crypto
-    .createHmac('sha256', process.env.RAZORPAY_SECRET)
+    .createHmac('sha256', process.env.RAZORPAY_SECRET || process.env.RAZORPAY_KEY_SECRET)
     .update(`${razorpay_order_id}|${razorpay_payment_id}`)
     .digest('hex');
 
