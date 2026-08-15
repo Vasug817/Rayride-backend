@@ -9,6 +9,7 @@ import random
 import threading
 import json
 import base64
+import traceback
 import paho.mqtt.client as mqtt
 
 app = Flask(__name__)
@@ -814,6 +815,14 @@ def mqtt_bridge_thread():
             client.loop_forever()
         except Exception:
             time.sleep(5)
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    return jsonify({
+        "error": str(e),
+        "traceback": traceback.format_exc()
+    }), 500
 
 # ----------------------------------------------------
 # MAIN PROCESS RUNNER
